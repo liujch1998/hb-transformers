@@ -46,6 +46,7 @@ from ...utils import (
     replace_return_docstrings,
 )
 from .configuration_olmo import OlmoConfig
+from .infini_gram import InfinigramEngine
 
 
 if is_flash_attn_2_available():
@@ -812,11 +813,24 @@ class OlmoModel(OlmoPreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        if config.infgram and config.infgram.separate_wte:
+            self.infgram_embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
             [OlmoDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = OlmoLayerNorm(config.hidden_size)
         self.gradient_checkpointing = False
+
+        if config.infgram:
+            self.infinigram_engine = InfinigramEngine(
+                cfg=config.infgram,
+                max_batch_size_per_device=1024,
+                max_seq_len=config.max_position_embeddings,
+                local_rank=0,
+                global_rank=0,
+                local_world_size=1,
+                world_size=1,
+            )
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -864,6 +878,22 @@ class OlmoModel(OlmoPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
+            if self.config.infgram:
+                infgram_ntd = self.infinigram_engine.get_infgram_ntd(
+                    input_idss=input_ids,
+                    method=self.config.infgram.method_train if self.training else self.config.infgram.method_eval,
+                )['infgram_ntd']
+                if self.config.infgram.separate_wte:
+                    infgram_emb = self.infgram_embed_tokens(infgram_ntd).mean(dim=-2)
+                else:
+                    infgram_emb = self.embed_tokens(infgram_ntd).mean(dim=-2)
+                # print(f'input_ids = {input_ids}')
+                # print(f'infgram_ntd = {infgram_ntd}')
+                # print(f'infgram_embed_tokens.weight = {self.infgram_embed_tokens.weight}')
+                # print(f'inputs_embeds = {inputs_embeds}')
+                # print(f'infgram_emb = {infgram_emb}')
+                inputs_embeds = inputs_embeds + infgram_emb
+
         return_legacy_cache = False
         if (
             use_cache and not isinstance(past_key_values, Cache) and not self.training
@@ -889,6 +919,7 @@ class OlmoModel(OlmoPreTrainedModel):
 
         # embed positions
         hidden_states = inputs_embeds
+        # print(f'first_hidden_state = {hidden_states}')
 
         # decoder layers
         all_hidden_states = () if output_hidden_states else None
@@ -929,6 +960,7 @@ class OlmoModel(OlmoPreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
+        # print(f'last_hidden_state = {hidden_states}')
         hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer

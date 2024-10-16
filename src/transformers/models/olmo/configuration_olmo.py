@@ -26,6 +26,33 @@ from ...utils import logging
 logger = logging.get_logger(__name__)
 
 
+class InfgramConfig(PretrainedConfig):
+    def __init__(
+        self,
+        model_type, # dummy field
+        index_dir,
+        min_cnt=2,
+        support=20,
+        cpp_log_path='/tmp/cpp_engine.log',
+        mode='prod',
+        sharded=False, # sharded index is not supported
+        prefetch=False, # prefetch is not supported
+        separate_wte=False,
+        method_train=2,
+        method_eval=2,
+    ):
+        self.index_dir = index_dir
+        self.min_cnt = min_cnt
+        self.support = support
+        self.cpp_log_path = cpp_log_path
+        self.mode = mode
+        self.sharded = sharded
+        self.prefetch = prefetch
+        self.separate_wte = separate_wte
+        self.method_train = method_train
+        self.method_eval = method_eval
+
+
 class OlmoConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`OlmoModel`]. It is used to instantiate an OLMo
@@ -128,6 +155,7 @@ class OlmoConfig(PretrainedConfig):
         attention_bias=False,
         attention_dropout=0.0,
         clip_qkv=None,
+        infgram=None,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -151,6 +179,8 @@ class OlmoConfig(PretrainedConfig):
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
         self.clip_qkv = clip_qkv
+
+        self.infgram = InfgramConfig(**infgram) if infgram is not None else None
 
         super().__init__(
             pad_token_id=pad_token_id,
